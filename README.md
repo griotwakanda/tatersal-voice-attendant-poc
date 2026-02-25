@@ -13,9 +13,15 @@ Browser-first voice attendant prototype for auction buyers.
 
 ## Stack
 - Node.js + Express
-- OpenAI Chat Completions (tool calling)
+- OpenAI Responses API (tool calling) with gpt-realtime-1.5 target model
 - Web Speech API (speech recognition + speech synthesis in browser)
 - Mock JSON datastore
+
+
+## Model behavior
+- Primary model: `gpt-realtime-1.5`
+- Fallback: `gpt-4o-mini` (automatic if account has no access to realtime model)
+- Endpoint `/api/model` shows what model is actually used in session
 
 ## Setup
 
