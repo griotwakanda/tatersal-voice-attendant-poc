@@ -1,27 +1,22 @@
 # Tatersal Voice Attendant POC
 
-Browser-first voice attendant prototype for auction buyers.
+Browser-first voice attendant prototype for auction buyers using OpenAI Realtime API.
 
 ## What this POC validates
-- "Call-like" experience in the browser with only 3 UI elements:
+- "Call-like" experience in browser with only:
   - Name input
   - Phone input
-  - Talk button
+  - Push-to-talk button
 - User validation by phone (approved/pending/not found)
-- Live lot Q&A and bid attempts via AI attendant
+- Realtime voice conversation over WebRTC
+- Function calling in Realtime flow (`function_call` + `function_call_output`)
 - Mock lot state updates in-memory (no real backend dependency)
 
 ## Stack
 - Node.js + Express
-- OpenAI Responses API (tool calling) with gpt-realtime-1.5 target model
-- Web Speech API (speech recognition + speech synthesis in browser)
+- OpenAI Realtime API (`gpt-realtime-1.5`) + WebRTC
+- Web Speech not required for the call loop
 - Mock JSON datastore
-
-
-## Model behavior
-- Primary model: `gpt-realtime-1.5`
-- Fallback: `gpt-4o-mini` (automatic if account has no access to realtime model)
-- Endpoint `/api/model` shows what model is actually used in session
 
 ## Setup
 
@@ -41,17 +36,18 @@ Open: `http://localhost:3000`
 
 ## Test script
 1. Start with Daniel (approved)
-2. Ask: "Qual lote está aberto?"
+2. Hold `🎤 Falar` and ask: "Qual lote está aberto?"
 3. Ask: "Me dá detalhes do lote"
-4. Bid: "Quero dar lance de 15600"
-5. Try invalid bid: "Lance 15620" (should fail if min increment unmet)
+4. Bid: "Quero dar lance de quinze mil e seiscentos"
+5. Try invalid bid below min increment
 6. Restart with Carlos (pending), try a bid, verify block
 
 ## API endpoints
 - `POST /api/session/start`
-- `POST /api/voice-turn`
+- `POST /api/realtime/session`
+- `POST /api/tools/execute`
 - `GET /api/state`
 
 ## Notes
-- For deployment, use your own `OPENAI_API_KEY` in environment.
-- This POC intentionally avoids Twilio/phone providers to focus on buyer UX.
+- Deployment requires your own `OPENAI_API_KEY`.
+- This POC intentionally avoids Twilio/phone providers to focus only buyer voice UX.

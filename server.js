@@ -3,7 +3,6 @@ import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import OpenAI from 'openai';
 
 dotenv.config();
 
@@ -17,9 +16,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 const dataPath = path.join(__dirname, 'data', 'mock-data.json');
 const db = JSON.parse(fs.readFileSync(dataPath, 'utf-8'));
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const PRIMARY_MODEL = process.env.MODEL || 'gpt-realtime-1.5';
-const FALLBACK_MODEL = process.env.FALLBACK_MODEL || 'gpt-4o-mini';
+const REALTIME_MODEL = process.env.REALTIME_MODEL || process.env.MODEL || 'gpt-realtime-1.5';
+const PORT = process.env.PORT || 3000;
 
 const sessions = new Map();
 
@@ -53,137 +51,51 @@ function placeBid({ phone, amount }) {
     created_at: new Date().toISOString()
   };
   db.bids.push(bid);
-
   return { ok: true, bid, lot: db.lot };
 }
 
-const tools = [
-  {
-    type: 'function',
-    name: 'get_current_lot',
-    description: 'Retorna o resumo do lote atual aberto.',
-    parameters: { type: 'object', properties: {}, additionalProperties: false }
-  },
-  {
-    type: 'function',
-    name: 'get_lot_details',
-    description: 'Retorna os detalhes completos do lote atual.',
-    parameters: { type: 'object', properties: {}, additionalProperties: false }
-  },
-  {
-    type: 'function',
-    name: 'place_bid_voice',
-    description: 'Registra um lance por voz para o comprador atual da sessão.',
-    parameters: {
-      type: 'object',
-      properties: {
-        amount: { type: 'number', description: 'Valor do lance em reais (BRL)' }
-      },
-      required: ['amount'],
-      additionalProperties: false
-    }
-  }
-];
-
-function assistantPrompt({ callerName, callerPhone, approved }) {
+function getRealtimeInstructions(session) {
   return [
-    'Você é o Atendente de Voz do Tatersal Digital.',
-    'Fale em PT-BR natural, calor humano, sem tom robótico.',
-    `Comprador: ${callerName} | Telefone: ${callerPhone} | Aprovado: ${approved ? 'sim' : 'não'}.`,
-    'Prioridade: ser claro, rápido e convincente como um atendente premium de leilão.',
-    'Use frases curtas, ritmo de conversa real, e confirme números com precisão.',
-    'Quando perguntarem lote/status, use tools.',
-    'Quando o comprador der lance, use place_bid_voice.',
-    'Se não aprovado, nunca registre lance; explique com respeito e ofereça próximos passos.',
-    'Sempre mencionar moeda como reais.',
-    'Evite jargão técnico e respostas longas.'
+    'Você é o Atendente de Voz do Tatersal Digital, em português do Brasil.',
+    'Fale de forma natural, humana, cordial e objetiva. Nada de tom robótico.',
+    `Comprador atual: ${session.callerName}. Telefone: ${session.callerPhone}.`,
+    `Status do comprador: ${session.approved ? 'aprovado para lances' : 'não aprovado para lances'}.`,
+    'Sempre que perguntarem status/detalhes do lote, use as funções.',
+    'Sempre que o comprador der um lance, use place_bid_voice.',
+    'Se não aprovado, nunca registre lance e explique o motivo com respeito.',
+    'Sempre informe valores em reais (BRL).',
+    'Respostas curtas, claras e com ritmo de conversa de atendimento premium.'
   ].join(' ');
 }
 
-async function createResponseWithFallback(payload) {
-  try {
-    const response = await openai.responses.create({ ...payload, model: PRIMARY_MODEL });
-    return { response, modelUsed: PRIMARY_MODEL };
-  } catch (err) {
-    const msg = String(err?.message || '').toLowerCase();
-    if (msg.includes('model') || msg.includes('not found') || msg.includes('access')) {
-      const response = await openai.responses.create({ ...payload, model: FALLBACK_MODEL });
-      return { response, modelUsed: FALLBACK_MODEL };
-    }
-    throw err;
-  }
-}
-
-function extractText(response) {
-  if (response.output_text && response.output_text.trim()) return response.output_text.trim();
-
-  const messageItem = (response.output || []).find((o) => o.type === 'message');
-  if (!messageItem?.content) return '';
-
-  const textChunk = messageItem.content.find((c) => c.type === 'output_text');
-  return textChunk?.text?.trim() || '';
-}
-
-async function runAssistant({ sessionId, message }) {
-  const session = sessions.get(sessionId);
-  if (!session) throw new Error('SESSION_NOT_FOUND');
-
-  const conversation = [
-    { role: 'system', content: assistantPrompt(session) },
-    ...session.history,
-    { role: 'user', content: message }
-  ];
-
-  let { response, modelUsed } = await createResponseWithFallback({
-    input: conversation,
-    tools,
-    temperature: 0.55
-  });
-
-  while (true) {
-    const toolCalls = (response.output || []).filter((o) => o.type === 'function_call');
-
-    if (!toolCalls.length) {
-      const reply = extractText(response) || 'Não consegui entender com confiança. Pode repetir em uma frase curta?';
-      session.history.push({ role: 'user', content: message });
-      session.history.push({ role: 'assistant', content: reply });
-      session.modelUsed = modelUsed;
-      return { reply, modelUsed };
-    }
-
-    const toolOutputs = [];
-
-    for (const call of toolCalls) {
-      let result;
-      const args = JSON.parse(call.arguments || '{}');
-
-      if (call.name === 'get_current_lot') {
-        result = db.lot;
-      } else if (call.name === 'get_lot_details') {
-        result = db.lot;
-      } else if (call.name === 'place_bid_voice') {
-        result = placeBid({ phone: session.callerPhone, amount: args.amount });
-      } else {
-        result = { ok: false, reason: 'UNKNOWN_TOOL' };
+function realtimeTools() {
+  return [
+    {
+      type: 'function',
+      name: 'get_current_lot',
+      description: 'Retorna resumo do lote aberto atual',
+      parameters: { type: 'object', properties: {}, additionalProperties: false }
+    },
+    {
+      type: 'function',
+      name: 'get_lot_details',
+      description: 'Retorna detalhes completos do lote atual',
+      parameters: { type: 'object', properties: {}, additionalProperties: false }
+    },
+    {
+      type: 'function',
+      name: 'place_bid_voice',
+      description: 'Registra lance por voz para o comprador atual da sessão',
+      parameters: {
+        type: 'object',
+        properties: {
+          amount: { type: 'number', description: 'Valor do lance em BRL' }
+        },
+        required: ['amount'],
+        additionalProperties: false
       }
-
-      toolOutputs.push({
-        type: 'function_call_output',
-        call_id: call.call_id,
-        output: JSON.stringify(result)
-      });
     }
-
-    const next = await createResponseWithFallback({
-      previous_response_id: response.id,
-      input: toolOutputs,
-      tools,
-      temperature: 0.45
-    });
-
-    response = next.response;
-    modelUsed = next.modelUsed;
-  }
+  ];
 }
 
 app.post('/api/session/start', (req, res) => {
@@ -198,45 +110,87 @@ app.post('/api/session/start', (req, res) => {
     callerName: name,
     callerPhone: phone,
     approved,
-    history: [],
-    modelUsed: PRIMARY_MODEL
+    userStatus: user?.status || 'not_found'
   });
 
   res.json({
     sessionId,
     approved,
     user: user || { name, phone, status: 'not_found' },
-    lot: db.lot,
-    model: PRIMARY_MODEL
+    lot: db.lot
   });
 });
 
-app.post('/api/voice-turn', async (req, res) => {
+app.post('/api/realtime/session', async (req, res) => {
   try {
-    const { sessionId, transcript } = req.body;
-    if (!sessionId || !transcript) return res.status(400).json({ error: 'SESSION_AND_TRANSCRIPT_REQUIRED' });
+    const { sessionId } = req.body;
+    const session = sessions.get(sessionId);
+    if (!session) return res.status(404).json({ error: 'SESSION_NOT_FOUND' });
+    if (!process.env.OPENAI_API_KEY) return res.status(500).json({ error: 'OPENAI_API_KEY_MISSING' });
 
-    const out = await runAssistant({ sessionId, message: transcript });
-    res.json(out);
+    const payload = {
+      model: REALTIME_MODEL,
+      voice: 'alloy',
+      modalities: ['audio', 'text'],
+      instructions: getRealtimeInstructions(session),
+      input_audio_transcription: {
+        model: 'gpt-4o-mini-transcribe',
+        language: 'pt'
+      },
+      turn_detection: {
+        type: 'server_vad',
+        create_response: true,
+        interrupt_response: true
+      },
+      tools: realtimeTools()
+    };
+
+    const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      return res.status(response.status).json({
+        error: 'REALTIME_SESSION_CREATE_FAILED',
+        detail: data
+      });
+    }
+
+    return res.json({
+      model: REALTIME_MODEL,
+      client_secret: data.client_secret,
+      expires_at: data.expires_at
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'VOICE_TURN_FAILED', detail: err.message });
+    return res.status(500).json({ error: 'REALTIME_SESSION_EXCEPTION', detail: err.message });
   }
+});
+
+app.post('/api/tools/execute', (req, res) => {
+  const { sessionId, toolName, args } = req.body;
+  const session = sessions.get(sessionId);
+  if (!session) return res.status(404).json({ ok: false, reason: 'SESSION_NOT_FOUND' });
+
+  if (toolName === 'get_current_lot') return res.json({ ok: true, data: db.lot });
+  if (toolName === 'get_lot_details') return res.json({ ok: true, data: db.lot });
+  if (toolName === 'place_bid_voice') {
+    const out = placeBid({ phone: session.callerPhone, amount: args?.amount });
+    return res.json(out);
+  }
+
+  return res.status(400).json({ ok: false, reason: 'UNKNOWN_TOOL' });
 });
 
 app.get('/api/state', (_req, res) => {
   res.json({ lot: db.lot, bids: db.bids.slice(-10) });
 });
 
-app.get('/api/model', (req, res) => {
-  const sessionId = req.query.sessionId;
-  if (!sessionId || !sessions.has(sessionId)) {
-    return res.json({ primary: PRIMARY_MODEL, fallback: FALLBACK_MODEL });
-  }
-  return res.json({ modelUsed: sessions.get(sessionId).modelUsed, primary: PRIMARY_MODEL, fallback: FALLBACK_MODEL });
-});
-
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-  console.log(`Tatersal Voice POC running at http://localhost:${port}`);
+app.listen(PORT, () => {
+  console.log(`Tatersal Voice POC running at http://localhost:${PORT}`);
 });
