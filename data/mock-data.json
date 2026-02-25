@@ -1,0 +1,21 @@
+{
+  "users": [
+    { "name": "Daniel Duarte", "phone": "6045551111", "status": "approved" },
+    { "name": "Lidi Mendes", "phone": "6045552222", "status": "approved" },
+    { "name": "Carlos Souza", "phone": "11999999999", "status": "pending" }
+  ],
+  "lot": {
+    "id": 42,
+    "lot_number": 42,
+    "status": "open",
+    "description": "20 novilhas Nelore, 18 meses, excelente genética",
+    "location": "Uberaba, MG",
+    "weight_avg_kg": 320,
+    "payment_terms": "30/60 dias",
+    "current_bid": 15500,
+    "min_increment": 100,
+    "currency": "BRL",
+    "auction_name": "Leilão Tatersal Demo"
+  },
+  "bids": []
+}

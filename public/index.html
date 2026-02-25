@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tatersal Voice Attendant POC</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="container">
+    <h1>📞 Tatersal Voice Attendant — POC</h1>
+    <p class="subtitle">Simulação de ligação no browser (nome + telefone + voz)</p>
+
+    <section class="card">
+      <label>Nome do comprador</label>
+      <input id="name" placeholder="Ex: Daniel Duarte" />
+
+      <label>Telefone</label>
+      <input id="phone" placeholder="Ex: 6045551111" />
+
+      <button id="startBtn">Iniciar ligação</button>
+      <button id="talkBtn" disabled>🎤 Falar</button>
+      <p id="status">Sessão não iniciada</p>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <h2>Lote atual</h2>
+        <pre id="lotBox">-</pre>
+      </div>
+      <div class="card">
+        <h2>Conversa</h2>
+        <div id="log" class="log"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

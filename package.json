@@ -1,0 +1,16 @@
+{
+  "name": "tatersal-voice-attendant-poc",
+  "version": "1.0.0",
+  "description": "Browser voice attendant POC for Tatersal Digital",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "openai": "^4.63.0"
+  }
+}
