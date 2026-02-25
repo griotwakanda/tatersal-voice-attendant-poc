@@ -1,9 +1,9 @@
 let sessionId = null;
+let currentLot = null;
 let pc = null;
 let dc = null;
 let localStream = null;
 let micTrack = null;
-let isTalking = false;
 
 const nameInput = document.getElementById('name');
 const phoneInput = document.getElementById('phone');
@@ -24,6 +24,11 @@ function addMsg(text, who = 'bot') {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
+function openingPrompt(lot) {
+  const minBid = Number(lot.current_bid) + Number(lot.min_increment);
+  return `Inicie agora o atendimento com uma saudação curta de boas-vindas ao leilão, e diga APENAS estas informações do lote: número ${lot.lot_number}, descrição "${lot.description}", lance mínimo atual de R$ ${minBid}. Em seguida pergunte exatamente qual lance o comprador quer oferecer.`;
+}
+
 async function startAppSession() {
   const name = nameInput.value.trim();
   const phone = phoneInput.value.trim();
@@ -41,12 +46,8 @@ async function startAppSession() {
   if (!r.ok) throw new Error(data.error || 'SESSION_START_FAILED');
 
   sessionId = data.sessionId;
+  currentLot = data.lot;
   lotBox.textContent = JSON.stringify(data.lot, null, 2);
-
-  const hello = data.approved
-    ? `Olá ${name}, conexão iniciada. Pode falar sobre lote e lances.`
-    : `Olá ${name}. Posso informar o lote, mas seu cadastro ainda não está aprovado para lances.`;
-  addMsg(hello, 'bot');
 
   return data;
 }
@@ -62,6 +63,11 @@ async function createRealtimeSession() {
   return data;
 }
 
+function sendClientEvent(event) {
+  if (!dc || dc.readyState !== 'open') return;
+  dc.send(JSON.stringify(event));
+}
+
 async function connectWebRTC(ephemeralKey, model) {
   pc = new RTCPeerConnection();
 
@@ -71,13 +77,20 @@ async function connectWebRTC(ephemeralKey, model) {
 
   dc = pc.createDataChannel('oai-events');
   dc.onopen = () => {
-    statusEl.textContent = `Ligação conectada • modelo ${model}. Segure o botão Falar para falar.`;
+    const minBid = Number(currentLot.current_bid) + Number(currentLot.min_increment);
+    statusEl.textContent = `Ligação conectada • modelo ${model} • microfone ativo`; 
+
+    addMsg(
+      `Atendente iniciou: Lote ${currentLot.lot_number}, ${currentLot.description}, lance mínimo R$ ${minBid}.`,
+      'bot'
+    );
+
     sendClientEvent({
       type: 'conversation.item.create',
       item: {
         type: 'message',
         role: 'user',
-        content: [{ type: 'input_text', text: 'Atendimento iniciado. Cumprimente o comprador.' }]
+        content: [{ type: 'input_text', text: openingPrompt(currentLot) }]
       }
     });
     sendClientEvent({ type: 'response.create' });
@@ -93,8 +106,12 @@ async function connectWebRTC(ephemeralKey, model) {
 
   localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
   micTrack = localStream.getAudioTracks()[0];
-  micTrack.enabled = false;
+  micTrack.enabled = true; // always-on like a call
   pc.addTrack(micTrack, localStream);
+
+  // UI: no push-to-talk needed
+  talkBtn.disabled = true;
+  talkBtn.textContent = '📞 Ligação em andamento';
 
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
@@ -116,11 +133,6 @@ async function connectWebRTC(ephemeralKey, model) {
 
   const answer = await sdpResponse.text();
   await pc.setRemoteDescription({ type: 'answer', sdp: answer });
-}
-
-function sendClientEvent(event) {
-  if (!dc || dc.readyState !== 'open') return;
-  dc.send(JSON.stringify(event));
 }
 
 async function handleRealtimeEvent(event) {
@@ -153,18 +165,9 @@ async function handleRealtimeEvent(event) {
     sendClientEvent({ type: 'response.create' });
 
     const state = await fetch('/api/state').then((x) => x.json());
+    currentLot = state.lot;
     lotBox.textContent = JSON.stringify(state.lot, null, 2);
   }
-}
-
-function setTalking(active) {
-  if (!micTrack) return;
-  micTrack.enabled = active;
-  isTalking = active;
-  talkBtn.textContent = active ? '🛑 Soltar para parar' : '🎤 Falar';
-  statusEl.textContent = active
-    ? 'Falando com atendente...'
-    : 'Ligação conectada. Segure o botão Falar para falar.';
 }
 
 async function initCall() {
@@ -177,10 +180,9 @@ async function initCall() {
 
     await connectWebRTC(rt.client_secret.value, rt.model);
 
-    talkBtn.disabled = false;
     statusEl.textContent = startData.approved
-      ? `Conectado ✅ comprador aprovado • modelo ${rt.model}`
-      : `Conectado ⚠️ comprador não aprovado • modelo ${rt.model}`;
+      ? `Conectado ✅ comprador aprovado • modelo ${rt.model} • conversa livre`
+      : `Conectado ⚠️ comprador não aprovado • modelo ${rt.model} • conversa livre`;
   } catch (err) {
     console.error(err);
     statusEl.textContent = `Erro: ${err.message}`;
@@ -190,18 +192,5 @@ async function initCall() {
 
 startBtn.addEventListener('click', initCall);
 
-['mousedown', 'touchstart'].forEach((evt) => {
-  talkBtn.addEventListener(evt, (e) => {
-    e.preventDefault();
-    if (!sessionId || !micTrack) return;
-    setTalking(true);
-  });
-});
-
-['mouseup', 'mouseleave', 'touchend', 'touchcancel'].forEach((evt) => {
-  talkBtn.addEventListener(evt, (e) => {
-    e.preventDefault();
-    if (!sessionId || !micTrack) return;
-    setTalking(false);
-  });
-});
+// No push-to-talk in this mode (call-like continuous session)
+talkBtn.disabled = true;

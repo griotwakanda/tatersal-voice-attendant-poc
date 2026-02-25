@@ -130,7 +130,7 @@ app.post('/api/realtime/session', async (req, res) => {
 
     const payload = {
       model: REALTIME_MODEL,
-      voice: 'alloy',
+      voice: 'shimmer',
       modalities: ['audio', 'text'],
       instructions: getRealtimeInstructions(session),
       input_audio_transcription: {
